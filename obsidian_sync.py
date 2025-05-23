@@ -22,6 +22,29 @@ def init_repo(vault_path: Path, repo_url: str) -> Repo:
             repo.create_remote('origin', repo_url)
         else:
             repo = Repo(vault_path)
+        
+        # Create or update .gitignore to exclude workspace files
+        gitignore_path = vault_path / '.gitignore'
+        if not gitignore_path.exists():
+            with open(gitignore_path, 'w') as f:
+                f.write('.obsidian/workspace.json\n')
+        else:
+            with open(gitignore_path, 'r') as f:
+                content = f.read()
+            if '.obsidian/workspace.json' not in content:
+                with open(gitignore_path, 'a') as f:
+                    f.write('\n.obsidian/workspace.json\n')
+        
+        # Remove workspace.json from Git tracking if it exists
+        workspace_path = vault_path / '.obsidian' / 'workspace.json'
+        if workspace_path.exists():
+            try:
+                repo.git.rm('--cached', str(workspace_path))
+                console.print("Removed workspace.json from Git tracking", style="yellow")
+            except GitCommandError:
+                # File might not be tracked yet, which is fine
+                pass
+        
         return repo
     except Exception as e:
         console.print(f"Error initializing repository: {str(e)}", style="red")
@@ -30,6 +53,15 @@ def init_repo(vault_path: Path, repo_url: str) -> Repo:
 def sync_changes(repo: Repo, commit_message: str = None):
     """Sync changes with remote repository."""
     try:
+        # Stash workspace.json changes if they exist
+        workspace_path = Path('.obsidian/workspace.json')
+        if workspace_path.exists() and repo.is_dirty(paths=[str(workspace_path)]):
+            console.print("Stashing workspace.json changes...", style="yellow")
+            repo.git.stash('push', str(workspace_path))
+            workspace_stashed = True
+        else:
+            workspace_stashed = False
+
         # Add all changes
         repo.git.add('.')
         
@@ -51,25 +83,32 @@ def sync_changes(repo: Repo, commit_message: str = None):
             console.print("Changes committed successfully", style="green")
         
         try:
-            # Check if remote main branch exists
-            remote_main_exists = 'main' in [ref.name for ref in repo.remotes.origin.refs]
-            
-            if remote_main_exists:
-                # Pull changes from remote if main branch exists
-                console.print("Pulling changes from remote...", style="yellow")
-                repo.remotes.origin.pull('main')
-            else:
-                # If main branch doesn't exist, just push to create it
+            # Always try to pull first to get any remote changes
+            console.print("Pulling changes from remote...", style="yellow")
+            # Use --rebase to avoid merge commits
+            repo.git.pull('--rebase', 'origin', 'main')
+        except GitCommandError as e:
+            if "Couldn't find remote ref main" in str(e):
+                # If main branch doesn't exist remotely, just push to create it
                 console.print("Initializing remote repository...", style="yellow")
                 repo.git.push('--set-upstream', 'origin', 'main')
-        except GitCommandError:
-            # If checking remote refs fails, assume branch doesn't exist and create it
-            console.print("Initializing remote repository...", style="yellow")
-            repo.git.push('--set-upstream', 'origin', 'main')
+            elif "CONFLICT" in str(e):
+                console.print("Merge conflict detected. Attempting to resolve...", style="yellow")
+                # Try to resolve conflicts by taking local changes
+                repo.git.checkout('--ours', '.')
+                repo.git.add('.')
+                repo.git.rebase('--continue')
+            else:
+                raise e
         
         # Push changes to remote
         console.print("Pushing changes to remote...", style="yellow")
         repo.remotes.origin.push('main')
+        
+        # Restore workspace.json changes if they were stashed
+        if workspace_stashed:
+            console.print("Restoring workspace.json changes...", style="yellow")
+            repo.git.stash('pop')
         
         console.print("Sync completed successfully! ✨", style="green bold")
     except GitCommandError as e:
