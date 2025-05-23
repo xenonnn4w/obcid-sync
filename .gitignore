@@ -1,0 +1,25 @@
+# Obsidian workspace settings
+.obsidian/workspace.json
+.obsidian/workspace
+.obsidian/workspace.json
+
+# Obsidian cache
+.obsidian/cache
+.obsidian/plugins/*/data.json
+
+# Hot reload files
+.hot-reload.json
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Python environment
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+
+# Editor files
+.vscode/
+.idea/ 
