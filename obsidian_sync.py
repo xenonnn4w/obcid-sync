@@ -51,6 +51,7 @@ def init_repo(vault_path: Path, repo_url: str) -> Repo:
         sys.exit(1)
 
 def sync_changes(repo: Repo, commit_message: str = None):
+   
     """Sync changes with remote repository."""
     try:
         # Stash workspace.json changes if they exist
